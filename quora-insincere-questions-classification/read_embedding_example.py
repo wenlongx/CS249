@@ -28,3 +28,11 @@ if __name__ == "__main__":
                 0.18217532,  0.26742932], dtype=float32)
         """
 
+        # Here's an example of reading a minibatch
+        def load_indices(indices):
+            # list of HDF5 "groups", each group of which contains a np array embedding
+            all_lines = list(h5py_file.values())[:-1]
+
+            # Return a list of numpy arrays
+            return list(map(lambda x: np.array(x), all_lines[indices]))
+
