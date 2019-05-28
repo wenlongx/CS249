@@ -1,6 +1,7 @@
 import numpy as np
 from torch.utils.data import TensorDataset
 from torch import from_numpy
+import torch
 import pandas as pd
 
 def load_embeddings(file):
@@ -22,18 +23,26 @@ def clean_text(x):
     return x
 
 def load_data(file):
-    data = pd.read_csv(file).head(100000)
+    data = pd.read_csv(file)
     data["question_text"] = data["question_text"].apply(lambda x: clean_text(x))
     return data
 
 def create_dataset(data, embeddings):
     sentences = data["question_text"].apply(lambda x: sentence2vec(x.split(),embeddings)).values
-    return TensorDataset(from_numpy(np.array([*sentences]).astype(np.float32)), from_numpy(data["target"].values.astype(np.long)))
+    sentence_tensor = from_numpy(np.array([*sentences]).astype(np.float32))
+    # torch.save(sentence_tensor,"glove_mean_avg.pt")
+    return TensorDataset(sentence_tensor, from_numpy(data["target"].values.astype(np.long)))
 
 def load_dataset(data_file, embeddings_file):
     data = load_data(data_file)
     embeddings = load_embeddings(embeddings_file)
     return create_dataset(data,embeddings)
+
+def load_dataset_from_file(data_file, data_embeddings_file):
+    sentence_tensor = torch.load(data_embeddings_file)
+    data = load_data(data_file)
+    # print(from_numpy(data["target"].values.astype(np.long)).sum())
+    return TensorDataset(sentence_tensor, from_numpy(data["target"].values.astype(np.long)))
 
 def sentence2vec(sentence, embeddings, embedding_dim=300):
     max = np.zeros(embedding_dim)
