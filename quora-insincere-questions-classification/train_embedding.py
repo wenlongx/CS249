@@ -50,6 +50,23 @@ class CNN1d(nn.Module):
         x = self.fc2(x)
         return x
 
+class RNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(RNN, self).__init__()
+        self.hidden_size = hidden_size
+
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first = True, bidirectional=True)
+        self.linear = nn.Linear(hidden_size * 2 * EMBEDDING_SIZE, output_size)
+
+    def forward(self, input):
+        lstm_out = self.lstm(input)
+        lstm_out_reshape = lstm_out[0].contiguous().view(BATCH_SIZE, -1)
+        y_pred = self.linear(lstm_out_reshape)
+        return y_pred
+    
+    def initHidden(self):
+        return torch.zeros(self.num_layers, BATCH_SIZE, self.hidden_size)
+
 # read csv file to get sentence label (0 or 1)
 def import_labels(data_path):
     y = []
@@ -73,15 +90,14 @@ def load_input_minibatch(data_path, indices):
         max_sentence_len = len(max(all_lines,key=len))
         extracted_inputs = list(map(lambda x: np.array(x), all_lines[indices]))
 
-        # pad sentences
+        # pad sentences - CNN 
+        # LSTM/CNN1D - padded_inputs.shape: (128, 1024, 50)
+        # CNN2D - padded_inputs.shape:  (128, 1, 1024, 50)
         padded_inputs = np.zeros((BATCH_SIZE, EMBEDDING_SIZE, max_sentence_len))
         for i,input in enumerate(extracted_inputs):
             sentence_len = input.shape[0]
             padded_inputs[i,:,:] = np.pad(input, pad_width=((0,max_sentence_len-sentence_len),(0,0)), mode='constant').T
-
-        # padded_inputs.shape: (128, 1024, 50)
         padded_inputs = torch.from_numpy(padded_inputs).float()
-        # FOR CNN2D ONLY -> add dimension: (128, 1, 1024, 50)
         # padded_inputs = padded_inputs[:, None, :, :]
         return padded_inputs
 
@@ -156,7 +172,7 @@ def main():
     labels_all = import_labels('./1000_example_train.csv')
 
     # define model, loss function and optimizer
-    net = CNN1d()
+    net = RNN(50, 32, 2)
     if torch.cuda.is_available():
         net.cuda()
     criterion = nn.CrossEntropyLoss()
