@@ -32,7 +32,7 @@ class LogisticRegression(nn.Module):
 
 # Dataset wrapper for the HDF5 files
 class HDF5_Dataset(data.Dataset):
-    def __init__(self, filepath, target_filepath):
+    def __init__(self, filepath, target_filepath, averaged=False):
         self.filepath = filepath
 
         with open(target_filepath) as csv_file:
@@ -42,13 +42,20 @@ class HDF5_Dataset(data.Dataset):
                 y.append(int(row[0]))
             y = torch.from_numpy(np.array(y).astype(int))
             self.targets = y
-        
+
         self.len = len(self.targets)
+
+        self.averaged = averaged
 
     # Return (vector_embedding, target)
     def __getitem__(self, index):
         with h5py.File(self.filepath, "r") as h5py_file:
-            return (h5py_file.get(str(index)), self.targets[index])
+            embedding = h5py_file.get(str(index))
+
+            # compute the average word
+            if self.averaged:
+                embedding = np.mean(embedding, axis=0)
+            return ( self.targets[index])
 
     def __len__(self):
         return self.len
@@ -63,11 +70,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", action="store", dest="train_filepath", help="This is the training file, with each of the training examples embedded already")
     parser.add_argument("--targets", action="store", dest="target_filepath", help="This is the path to the training file's targets")
+    parser.add_argument("--average", action="store_true", dest="average", default=False, help="Use the average word in the sentence instead of the entire sentence vector")
     args = parser.parse_args()
 
 
     """
-    python logistic_regression.py --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv
+    python logistic_regression.py --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
     """
 
     print("Loading Data")
@@ -76,7 +84,9 @@ if __name__ == "__main__":
         train_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         weights = torch.Tensor([x[1]*9+1 for x in train_dataset])
     else:
-        train_dataset = HDF5_Dataset(args.train_filepath, args.target_filepath)
+        train_dataset = HDF5_Dataset(args.train_filepath, \
+                                     args.target_filepath, \
+                                     averaged=args.average)
         targets = train_dataset.__get_targets__()
         weights = torch.Tensor(list(map(lambda x: 15 if x == 0 else 1, targets)))
 
