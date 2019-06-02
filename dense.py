@@ -18,18 +18,8 @@ input_size = 600
 num_classes = 2
 num_epochs = 400
 batch_size = 10000
-learning_rate = 0.001
-PATH = "lr_model.pt"
-
-class LogisticRegression(nn.Module):
-    def __init__(self, input_size, num_classes):
-        super(LogisticRegression, self).__init__()
-        self.linear = nn.Linear(input_size, num_classes)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        out = F.softmax(self.linear(x))
-        return out
+learning_rate = 0.0001
+PATH = "dense_model.pt"
 
 # Dataset wrapper for the HDF5 files
 class HDF5_Dataset(data.Dataset):
@@ -64,6 +54,22 @@ class HDF5_Dataset(data.Dataset):
     def __get_targets__(self):
         return self.targets
 
+class Dense(nn.Module):
+    def __init__(self, input_size, H1, H2, num_classes):
+        super(Dense, self).__init__()
+        self.linear1 = nn.Linear(input_size, H1)
+        self.bn1 = nn.BatchNorm1d(num_features=H1)
+        self.linear2 = nn.Linear(H1, H2)
+        self.bn2 = nn.BatchNorm1d(num_features=H2)
+        self.linear3 = nn.Linear(H2, num_classes)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        l1 = self.bn1(F.relu(self.linear1(x)))
+        l2 = self.bn2(F.relu(self.linear2(l1)))
+        out = F.softmax(self.linear3(l2))
+        return out
+
 
 if __name__ == "__main__":
 
@@ -76,7 +82,7 @@ if __name__ == "__main__":
 
 
     """
-    python logistic_regression.py --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
+    python dense.py --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
     """
 
     print("Loading Data")
@@ -84,6 +90,7 @@ if __name__ == "__main__":
         args.train_filepath == "../train.csv"
         train_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         weights = torch.Tensor([x[1]*9+1 for x in train_dataset])
+        print("loaded")
     else:
         train_dataset = HDF5_Dataset(args.train_filepath, \
                                      args.target_filepath, \
@@ -99,14 +106,14 @@ if __name__ == "__main__":
                                                batch_size=batch_size,
                                                shuffle=False)
     print("Creating Model")
-    model = LogisticRegression(input_size, num_classes)
-    # model.load_state_dict(torch.load(PATH))
+    model = Dense(input_size, 256, 32, num_classes)
+    model.load_state_dict(torch.load(PATH))
 
     # Loss and Optimizer
     # Softmax is internally computed.
     # Set parameters to be updated.
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     print("Starting Training")
     # Training the Model
@@ -123,7 +130,7 @@ if __name__ == "__main__":
             loss.backward()
             optimizer.step()
 
-            if (i) % 129 == 0:
+            if (i) % 200 == 0:
                 torch.save(model.state_dict(), PATH)
                 print ('Epoch: [%d/%d], Step: [%d/%d], Loss: %.4f'
                        % (epoch+1, num_epochs, i+1, len(train_dataset)//batch_size, loss.data.item()))
