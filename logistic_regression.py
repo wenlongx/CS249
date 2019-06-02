@@ -48,7 +48,7 @@ class HDF5_Dataset(data.Dataset):
     # Return (vector_embedding, target)
     def __getitem__(self, index):
         with h5py.File(self.filepath, "r") as h5py_file:
-            return (h5py_file.get(str(index)), self.targets[index])
+            return (h5py_file.get(str(index))[0], self.targets[index])
 
     def __len__(self):
         return self.len
@@ -75,10 +75,14 @@ if __name__ == "__main__":
         args.train_filepath == "../train.csv"
         train_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         weights = torch.Tensor([x[1]*9+1 for x in train_dataset])
+        # Hyperparameters
+        input_size = 600
     else:
         train_dataset = HDF5_Dataset(args.train_filepath, args.target_filepath)
         targets = train_dataset.__get_targets__()
         weights = torch.Tensor(list(map(lambda x: 15 if x == 0 else 1, targets)))
+        # Hyperparameters
+        input_size = 768
 
     sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, batch_size)
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
