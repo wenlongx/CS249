@@ -132,6 +132,38 @@ if __name__ == "__main__":
                 print ('Epoch: [%d/%d], Step: [%d/%d], Loss: %.4f'
                        % (epoch+1, num_epochs, i+1, len(train_dataset)//batch_size, loss.data.item()))
 
+        if epoch % 5 == 1:
+            # eval mode
+            model.eval()
+            correct = 0
+            total = 0
+            pred_positives = 0.0
+            real_positives = 0.0
+            true_positives = 0.0
+            for sentences, labels in train_loader:
+                print(labels)
+                sentences = Variable(sentences)
+                outputs = model(sentences)
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                real_positives += labels.sum()
+                pred_positives += predicted.sum()
+                true_positives += (labels * predicted).sum().item()
+                correct += (predicted == labels).sum()
+                # break
+            f1 = 0
+            try:
+                precision = true_positives*1.0/pred_positives.item()
+                recall = true_positives*1.0/real_positives.item()
+                f1 = 2*(precision*recall)/(precision+recall)
+                print(f"\tEpoch: {epoch}\tF1: {f1}")
+            except:
+                print("Error calculating f1 score")
+
+            torch.save(model.state_dict(), f"{PATH}/elmo_{epoch}_{f1}.pt")
+
+            model.train()
+
 
     print("Testing Model")
     # Test the Model
@@ -151,8 +183,12 @@ if __name__ == "__main__":
         true_positives += (labels * predicted).sum().item()
         correct += (predicted == labels).sum()
         # break
-    precision = true_positives*1.0/pred_positives.item()
-    recall = true_positives*1.0/real_positives.item()
-    print(true_positives,pred_positives,real_positives)
-    print("F1 score: {}".format(2*(precision*recall)/(precision+recall)))
+
+    try:
+        precision = true_positives*1.0/pred_positives.item()
+        recall = true_positives*1.0/real_positives.item()
+        print(true_positives,pred_positives,real_positives)
+        print("F1 score: {}".format(2*(precision*recall)/(precision+recall)))
+    except:
+        print("Error calculating f1 score")
     print('Accuracy of the model: %d %%' % (100 * correct / total))
