@@ -4,26 +4,87 @@ import torch.utils.data as data
 from torch.autograd import Variable
 from load_pre_trained_embeddings import load_dataset,load_dataset_from_file
 from torch.nn.functional import softmax
+import torch.nn.functional as F
 import numpy as np
 import h5py
-import torch.nn.functional as F
 
 import sys
 import csv
 import argparse
 
+"""
+NOT READY TO RUN YET. Have to adjust CNN parameters based on word embedding dimensions
+"""
 
 # Hyper Parameters
 input_size = 600
 num_classes = 2
-num_epochs = 400
-batch_size = 10000
-learning_rate = 0.0001
-PATH = "dense_model.pt"
+# num_epochs = 400
+num_epochs = 3
+# batch_size = 10000
+batch_size = 2048
+learning_rate = 0.001
+PATH = "cnn_model.pt"
+
+# temporary CNN models in 2D and 1D
+class CNN2d(nn.Module):
+    def __init__(self):
+        super(CNN2d, self).__init__()
+        self.conv1 = nn.Conv2d(1, 32, 5, padding = 2) # p = (h - 1) / 2
+        self.pool = nn.MaxPool2d(2, stride = 2)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding = 1)
+        self.conv3 = nn.Conv2d(64, 64, 3, padding = 1)
+        self.fc1 = nn.Linear(128 * 6 * 64, 10)
+        self.fc2 = nn.Linear(10, 2)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        x = x.view(-1, 128 * 6 * 64)
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
+
+class CNN1d(nn.Module):
+    def __init__(self):
+        super(CNN1d, self).__init__()
+        self.conv1 = nn.Conv1d(768, 32, 5, padding = 2) # p = (h - 1) / 2
+        self.pool = nn.MaxPool1d(2, stride = 2)
+        self.conv2 = nn.Conv1d(32, 64, 3, padding = 1)
+        self.conv3 = nn.Conv1d(64, 64, 3, padding = 1)
+        self.fc1 = nn.Linear(64 * 6, 10)
+        self.fc2 = nn.Linear(10, 2)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        x = x.view(-1, 64 * 6)  # TODO: errors on BERT
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
+
+class RNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(RNN, self).__init__()
+        self.hidden_size = hidden_size
+
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first = True, bidirectional=True)
+        self.linear = nn.Linear(hidden_size * 2 * EMBEDDING_SIZE, output_size)
+
+    def forward(self, input):
+        lstm_out = self.lstm(input)
+        lstm_out_reshape = lstm_out[0].contiguous().view(BATCH_SIZE, -1)
+        y_pred = self.linear(lstm_out_reshape)
+        return y_pred
+    
+    def initHidden(self):
+        return torch.zeros(self.num_layers, BATCH_SIZE, self.hidden_size)
 
 # Dataset wrapper for the HDF5 files
 class HDF5_Dataset(data.Dataset):
-    def __init__(self, filepath, target_filepath, embedding, averaged=False):
+    def __init__(self, filepath, target_filepath, averaged=False):
         self.filepath = filepath
 
         with open(target_filepath) as csv_file:
@@ -36,21 +97,31 @@ class HDF5_Dataset(data.Dataset):
 
         self.len = len(self.targets)
 
-        self.embedding = embedding
         self.averaged = averaged
 
     # Return (vector_embedding, target)
     def __getitem__(self, index):
         with h5py.File(self.filepath, "r") as h5py_file:
-            if self.embedding == 'elmo':
-                embedding = h5py_file.get(str(index))
-            elif self.embedding == 'bert':
-                embedding = h5py_file.get(str(index))[0]
+            embedding_group = h5py_file.get(str(index))
 
-            # compute the average word
-            if self.averaged:
-                embedding = np.mean(embedding, axis=0)
-            return (embedding, self.targets[index])
+            max_sentence_len = 64  # hardcode maximum sentence length
+
+            # pad sentences - CNN 
+            # LSTM/CNN1D - padded_inputs.shape: (128, 1024, 50)
+            # CNN2D - padded_inputs.shape:  (128, 1, 1024, 50)
+            padded_inputs = np.zeros((input_size, max_sentence_len))
+            sentence_len = embedding_group.shape[0]
+            if max_sentence_len < sentence_len:
+                print("WARNING: max_sentence_len = {0}, sentence_len = {1}".format(max_sentence_len, sentence_len))
+            else:
+                padded_inputs = np.pad(embedding_group, pad_width=((0, max_sentence_len-sentence_len), (0,0)), mode='constant').T
+                padded_inputs = torch.from_numpy(padded_inputs).float()
+
+                # compute the average word
+                if self.averaged:
+                    padded_inputs = np.mean(padded_inputs, axis=0)
+
+            return (padded_inputs, self.targets[index])
 
     def __len__(self):
         return self.len
@@ -58,36 +129,17 @@ class HDF5_Dataset(data.Dataset):
     def __get_targets__(self):
         return self.targets
 
-class Dense(nn.Module):
-    def __init__(self, input_size, H1, H2, num_classes):
-        super(Dense, self).__init__()
-        self.linear1 = nn.Linear(input_size, H1)
-        self.bn1 = nn.BatchNorm1d(num_features=H1)
-        self.linear2 = nn.Linear(H1, H2)
-        self.bn2 = nn.BatchNorm1d(num_features=H2)
-        self.linear3 = nn.Linear(H2, num_classes)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        l1 = self.bn1(F.relu(self.linear1(x)))
-        l2 = self.bn2(F.relu(self.linear2(l1)))
-        out = F.softmax(self.linear3(l2))
-        return out
-
-
 if __name__ == "__main__":
 
     # use args to specify embedding file
     parser = argparse.ArgumentParser()
-    parser.add_argument("--embedding", action="store", dest="embedding", help="The word embeddings to use, which can be 'elmo' or 'bert'. Default to pretrained embeddings.")
     parser.add_argument("--train", action="store", dest="train_filepath", help="This is the training file, with each of the training examples embedded already")
     parser.add_argument("--targets", action="store", dest="target_filepath", help="This is the path to the training file's targets")
     parser.add_argument("--average", action="store_true", dest="average", default=False, help="Use the average word in the sentence instead of the entire sentence vector")
     args = parser.parse_args()
 
-
     """
-    python dense.py --embedding=elmo --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
+    python cnn.py --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
     """
 
     print("Loading Data")
@@ -95,19 +147,16 @@ if __name__ == "__main__":
         args.train_filepath == "../train.csv"
         train_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         weights = torch.Tensor([x[1]*9+1 for x in train_dataset])
-        print("loaded")
+        # Hyperparameters
+        input_size = 600
     else:
         train_dataset = HDF5_Dataset(args.train_filepath, \
                                      args.target_filepath, \
-                                     args.embedding, \
                                      averaged=args.average)
         targets = train_dataset.__get_targets__()
         weights = torch.Tensor(list(map(lambda x: 15 if x == 0 else 1, targets)))
-        # Hyper Parameters
-        if args.embedding == 'elmo':
-            input_size = 1024
-        elif args.embedding == 'bert':
-            input_size = 768
+        # Hyperparameters
+        input_size = 768
 
     sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, batch_size)
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
@@ -117,7 +166,7 @@ if __name__ == "__main__":
                                                batch_size=batch_size,
                                                shuffle=False)
     print("Creating Model")
-    model = Dense(input_size, 256, 32, num_classes)
+    model = CNN1d()
     # model.load_state_dict(torch.load(PATH))
 
     # Loss and Optimizer
@@ -141,7 +190,7 @@ if __name__ == "__main__":
             loss.backward()
             optimizer.step()
 
-            if (i) % 200 == 0:
+            if (i) % 129 == 0:
                 torch.save(model.state_dict(), PATH)
                 print ('Epoch: [%d/%d], Step: [%d/%d], Loss: %.4f'
                        % (epoch+1, num_epochs, i+1, len(train_dataset)//batch_size, loss.data.item()))
