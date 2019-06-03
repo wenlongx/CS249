@@ -51,12 +51,12 @@ class HDF5_Dataset(data.Dataset):
     # Return (vector_embedding, target)
     def __getitem__(self, index):
         with h5py.File(self.filepath, "r") as h5py_file:
-            embedding = h5py_file.get(str(index)[0])
+            embedding = h5py_file.get(str(index))[0]
 
             # compute the average word
             if self.averaged:
                 embedding = np.mean(embedding, axis=0)
-            return ( self.targets[index])
+            return (embedding, self.targets[index])
 
     def __len__(self):
         return self.len
