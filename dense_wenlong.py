@@ -135,7 +135,7 @@ if __name__ == "__main__":
 
     # Uncomment the below for Dense NN
     model = Dense(input_size, 256, 32, num_classes)
-    model.load_state_dict(torch.load(PATH))
+    # model.load_state_dict(torch.load(PATH))
 
     # Loss and Optimizer
     # Softmax is internally computed.
