@@ -143,6 +143,8 @@ if __name__ == "__main__":
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    f1_scores = []
+
     print("Starting Training")
     # Training the Model
     for epoch in range(num_epochs):
@@ -181,7 +183,7 @@ if __name__ == "__main__":
                 true_positives += (labels * predicted).sum().item()
                 correct += (predicted == labels).sum()
                 # break
-            f1 = 0
+            f1 = -1
             try:
                 precision = true_positives*1.0/pred_positives.item()
                 recall = true_positives*1.0/real_positives.item()
@@ -189,11 +191,14 @@ if __name__ == "__main__":
                 print(f"\tEpoch: {epoch}\tF1: {f1}")
             except:
                 print("Error calculating f1 score")
+            f1_scores.append(f1)
 
             torch.save(model.state_dict(), f"{ELMO_PATH}/elmo_{epoch}_{f1}.pt")
 
             model.train()
 
+    # Save F1 scores for every 50 epochs
+    np.save(f"{ELMO_PATH}/elmo_f1.npy", np.array(f1_scores))
 
     print("Testing Model")
     # Test the Model
