@@ -14,17 +14,18 @@ import argparse
 
 
 # Hyper Parameters
-input_size = 600
+input_size = 1024
 num_classes = 2
-num_epochs = 400
-batch_size = 10000
+num_epochs = 3000
+batch_size = 512
 learning_rate = 0.001
 PATH = "lr_model.pt"
+ELMO_PATH = "elmo_lr"
 
 class LogisticRegression(nn.Module):
-    def __init__(self, input_size, num_classes):
+    def __init__(self, n_features, num_classes):
         super(LogisticRegression, self).__init__()
-        self.linear = nn.Linear(input_size, num_classes)
+        self.linear = nn.Linear(n_features, num_classes)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -51,7 +52,7 @@ class HDF5_Dataset(data.Dataset):
     # Return (vector_embedding, target)
     def __getitem__(self, index):
         with h5py.File(self.filepath, "r") as h5py_file:
-            embedding = h5py_file.get(str(index))[0]
+            embedding = h5py_file.get(str(index))
 
             # compute the average word
             if self.averaged:
@@ -91,9 +92,9 @@ if __name__ == "__main__":
                                      args.target_filepath, \
                                      averaged=args.average)
         targets = train_dataset.__get_targets__()
-        weights = torch.Tensor(list(map(lambda x: 15 if x == 0 else 1, targets)))
+        weights = torch.Tensor(list(map(lambda x: (1306120.0/1225310.0) if x == 0 else (1306120.0/80810.0), targets)))
         # Hyperparameters
-        input_size = 768
+        input_size = 1024
 
     sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, batch_size)
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
@@ -116,9 +117,9 @@ if __name__ == "__main__":
     # Training the Model
     for epoch in range(num_epochs):
         for i, (sentences, labels) in enumerate(train_loader):
+
             sentences = Variable(sentences)
             labels = Variable(labels)
-            print(labels.sum())
 
             # Forward + Backward + Optimize
             optimizer.zero_grad()
@@ -128,11 +129,11 @@ if __name__ == "__main__":
             optimizer.step()
 
             if (i) % 129 == 0:
-                torch.save(model.state_dict(), PATH)
+                # torch.save(model.state_dict(), PATH)
                 print ('Epoch: [%d/%d], Step: [%d/%d], Loss: %.4f'
                        % (epoch+1, num_epochs, i+1, len(train_dataset)//batch_size, loss.data.item()))
 
-        if epoch % 5 == 1:
+        if epoch % 50 == 1:
             # eval mode
             model.eval()
             correct = 0
@@ -141,7 +142,6 @@ if __name__ == "__main__":
             real_positives = 0.0
             true_positives = 0.0
             for sentences, labels in train_loader:
-                print(labels)
                 sentences = Variable(sentences)
                 outputs = model(sentences)
                 _, predicted = torch.max(outputs.data, 1)
@@ -160,7 +160,7 @@ if __name__ == "__main__":
             except:
                 print("Error calculating f1 score")
 
-            torch.save(model.state_dict(), f"{PATH}/elmo_{epoch}_{f1}.pt")
+            torch.save(model.state_dict(), f"{ELMO_PATH}/elmo_{epoch}_{f1}.pt")
 
             model.train()
 
