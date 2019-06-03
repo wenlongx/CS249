@@ -35,7 +35,7 @@ class LogisticRegression(nn.Module):
 
 # Dataset wrapper for the HDF5 files
 class HDF5_Dataset(data.Dataset):
-    def __init__(self, filepath, target_filepath, embedding, averaged=False):
+    def __init__(self, filepath, target_filepath, embedding, dataset="train", averaged=False):
         self.filepath = filepath
 
         with open(target_filepath) as csv_file:
@@ -51,8 +51,24 @@ class HDF5_Dataset(data.Dataset):
         self.embedding = embedding
         self.averaged = averaged
 
+        # Use self.idx as a subset of indices that are "train" or "test" respecitively
+        #   these indices are then used in the __getitem__ and __len__ and __get_targets__
+        #   methods to grab a subset of the data relating only to "train" or "test"
+        if dataset in ["train", "validation", "test"]:
+            self.dataset_type = dataset
+            self.idx = np.load(f"{dataset}_idx.npy")
+            self.len = len(self.idx)
+        else:
+            self.dataset_type = "full"
+            self.idx = None
+            self.len = len(self.targets)
+            self.valsplit = None
+
     # Return (vector_embedding, target)
     def __getitem__(self, index):
+        if self.dataset_type != "full":
+            index = int(self.idx[index])
+
         with h5py.File(self.filepath, "r") as h5py_file:
             if self.embedding == 'elmo':
                 embedding = h5py_file.get(str(index))
@@ -68,6 +84,8 @@ class HDF5_Dataset(data.Dataset):
         return self.len
 
     def __get_targets__(self):
+        if self.dataset_type != "full":
+            return self.targets[self.idx]
         return self.targets
 
 
@@ -89,6 +107,7 @@ if __name__ == "__main__":
     if args.train_filepath == "":
         args.train_filepath == "../train.csv"
         train_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
+        test_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         weights = torch.Tensor([x[1]*9+1 for x in train_dataset])
         # Hyper Parameters
         input_size = 600
@@ -97,6 +116,17 @@ if __name__ == "__main__":
         train_dataset = HDF5_Dataset(args.train_filepath, \
                                      args.target_filepath, \
                                      args.embedding, \
+                                     dataset="train", \
+                                     averaged=args.average)
+        val_dataset = HDF5_Dataset(args.train_filepath, \
+                                     args.target_filepath, \
+                                     args.embedding, \
+                                     dataset="validation", \
+                                     averaged=args.average)
+        test_dataset = HDF5_Dataset(args.train_filepath, \
+                                     args.target_filepath, \
+                                     args.embedding, \
+                                     dataset="test", \
                                      averaged=args.average)
         targets = train_dataset.__get_targets__()
         weights = torch.Tensor(list(map(lambda x: (1306120.0/1225310.0) if x == 0 else (1306120.0/80810.0), targets)))
@@ -110,7 +140,10 @@ if __name__ == "__main__":
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                                batch_size=batch_size,
                                                sampler=sampler)
-    test_loader = torch.utils.data.DataLoader(dataset=train_dataset,
+    val_loader = torch.utils.data.DataLoader(dataset=val_dataset,
+                                               batch_size=batch_size,
+                                               shuffle=False)
+    test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
                                                batch_size=batch_size,
                                                shuffle=False)
     print("Creating Model")
@@ -122,6 +155,8 @@ if __name__ == "__main__":
     # Set parameters to be updated.
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+
+    f1_scores = []
 
     print("Starting Training")
     # Training the Model
@@ -143,7 +178,7 @@ if __name__ == "__main__":
                 print ('Epoch: [%d/%d], Step: [%d/%d], Loss: %.4f'
                        % (epoch+1, num_epochs, i+1, len(train_dataset)//batch_size, loss.data.item()))
 
-        if epoch % 50 == 1:
+        if epoch % 1000 == 1:
             # eval mode
             model.eval()
             correct = 0
@@ -151,7 +186,7 @@ if __name__ == "__main__":
             pred_positives = 0.0
             real_positives = 0.0
             true_positives = 0.0
-            for sentences, labels in train_loader:
+            for sentences, labels in val_loader:
                 sentences = Variable(sentences)
                 outputs = model(sentences)
                 _, predicted = torch.max(outputs.data, 1)
@@ -161,7 +196,7 @@ if __name__ == "__main__":
                 true_positives += (labels * predicted).sum().item()
                 correct += (predicted == labels).sum()
                 # break
-            f1 = 0
+            f1 = -1
             try:
                 precision = true_positives*1.0/pred_positives.item()
                 recall = true_positives*1.0/real_positives.item()
@@ -169,6 +204,7 @@ if __name__ == "__main__":
                 print("\tEpoch: {0}\tF1: {1}".format(epoch, f1))
             except:
                 print("Error calculating f1 score")
+            f1_scores.append(f1)
 
             if args.embedding == 'elmo':
                 torch.save(model.state_dict(), "{0}/elmo_{1}_{2}.pt".format(ELMO_PATH, epoch, f1))
@@ -176,6 +212,9 @@ if __name__ == "__main__":
                 torch.save(model.state_dict(), "{0}/bert_{1}_{2}.pt".format(BERT_PATH, epoch, f1))
 
             model.train()
+
+    # Save F1 scores for every 50 epochs
+    np.save(f"{ELMO_PATH}/elmo_f1.npy", np.array(f1_scores))
 
 
     print("Testing Model")
