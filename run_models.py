@@ -19,7 +19,7 @@ num_classes = 2
 num_epochs = 3000
 batch_size = 512
 learning_rate = 0.001
-max_sentence_length = 64
+max_sentence_length = 32
 PATH = "lr_model.pt"
 
 # Dataset wrapper for the HDF5 files
@@ -75,6 +75,8 @@ class HDF5_Dataset(data.Dataset):
                     50%:        11
                     90%:        22
                     95%:        27
+                    97%:        31
+                    98%:        34
                     99%:        39
                     99.9%:      48
                     99.99%:     53
@@ -82,8 +84,8 @@ class HDF5_Dataset(data.Dataset):
                     99.9999%:   66
                     99.99999%:  125
                     99.999999%: 133
-                Therefore, having a max sentence length of 64 will cover the vast majority
-                (all but less than 100 examples) of training examples, while keeping the 
+                Therefore, having a max sentence length of 32 will cover the vast majority
+                (all but less than 100 examples) of training examples, while keeping the
                 embedding size relatively small.
 
                 The resulting embedding will be of shape:
@@ -230,15 +232,18 @@ if __name__ == "__main__":
             --model=[logreg, dense, cnn2d, cnn1d, rnn]
             --embedding=[elmo, bert-sentence, bert-word, glove]
             [--average]
-       If you don't include the --average tag, the embeddings will be padded with 0's, and 
+       If you don't include the --average tag, the embeddings will be padded with 0's, and
        longer sequences will be truncated.
 
     """
 
     print("Loading Data")
     if args.train_filepath == "" or args.embedding not in ["elmo", "bert"]:
-        train_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
-        test_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
+        dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
+        datalen = len(dataset)
+        train_len = int(0.7*datalen)
+        val_len = int(0.1*datalen)
+        train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_len, val_len, datalen-train_len-val_len])
         weights = torch.Tensor([x[1]*9+1 for x in train_dataset])
         # Hyperparameters
         input_size = 600
