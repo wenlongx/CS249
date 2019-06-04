@@ -279,13 +279,15 @@ if __name__ == "__main__":
         correct += (predicted == labels).sum()
         # break
 
+    f1 = -1
     try:
         precision = true_positives*1.0/pred_positives.item()
         recall = true_positives*1.0/real_positives.item()
         print(true_positives,pred_positives,real_positives)
-        print("F1 score: {}".format(2*(precision*recall)/(precision+recall)))
+        f1 = 2*(precision*recall)/(precision+recall)
+        print("F1 score: {}".format(f1))
     except:
         print("Error calculating f1 score")
     accuracy = (100 * correct / total)
     print('Accuracy of the model: %d %%' % accuracy)
-    np.save(f"{MODEL_PATH}/accuracy.npy", np.array([accuracy]))
+    np.save(f"{MODEL_PATH}/accuracy_f1.npy", np.array([accuracy, f1]))
