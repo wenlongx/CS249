@@ -163,7 +163,7 @@ class CNN1d(nn.Module):
         self.pool = nn.MaxPool1d(2, stride = 2)
         self.conv2 = nn.Conv1d(32, 64, 3, padding = 1)
         self.conv3 = nn.Conv1d(64, 64, 3, padding = 1)
-        self.fc1 = nn.Linear(64 * (self.input_shape[1]/8), 10)
+        self.fc1 = nn.Linear(int(64 * (self.input_shape[1]/8)), 10)
         self.fc2 = nn.Linear(10, 2)
 
     def forward(self, x):
