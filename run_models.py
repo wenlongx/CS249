@@ -99,6 +99,61 @@ class Dense(nn.Module):
         out = F.softmax(self.linear3(l2))
         return out
 
+# temporary CNN models in 2D and 1D
+class CNN2d(nn.Module):
+    def __init__(self):
+        super(CNN2d, self).__init__()
+        self.conv1 = nn.Conv2d(1, 32, 5, padding = 2) # p = (h - 1) / 2
+        self.pool = nn.MaxPool2d(2, stride = 2)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding = 1)
+        self.conv3 = nn.Conv2d(64, 64, 3, padding = 1)
+        self.fc1 = nn.Linear(128 * 6 * 64, 10)
+        self.fc2 = nn.Linear(10, 2)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        x = x.view(-1, 128 * 6 * 64)
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
+
+class CNN1d(nn.Module):
+    def __init__(self):
+        super(CNN1d, self).__init__()
+        self.conv1 = nn.Conv1d(768, 32, 5, padding = 2) # p = (h - 1) / 2
+        self.pool = nn.MaxPool1d(2, stride = 2)
+        self.conv2 = nn.Conv1d(32, 64, 3, padding = 1)
+        self.conv3 = nn.Conv1d(64, 64, 3, padding = 1)
+        self.fc1 = nn.Linear(64 * 6, 10)
+        self.fc2 = nn.Linear(10, 2)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        x = x.view(-1, 64 * 6)  # TODO: errors on BERT
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
+
+class RNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(RNN, self).__init__()
+        self.hidden_size = hidden_size
+
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first = True, bidirectional=True)
+        self.linear = nn.Linear(hidden_size * 2 * EMBEDDING_SIZE, output_size)
+
+    def forward(self, input):
+        lstm_out = self.lstm(input)
+        lstm_out_reshape = lstm_out[0].contiguous().view(BATCH_SIZE, -1)
+        y_pred = self.linear(lstm_out_reshape)
+        return y_pred
+
+    def initHidden(self):
+        return torch.zeros(self.num_layers, BATCH_SIZE, self.hidden_size)
 
 if __name__ == "__main__":
 
@@ -122,7 +177,7 @@ if __name__ == "__main__":
     2) Run the following command:
             python run_models.py --model=logreg --embedding=elmo --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
        You can change the parameters depending on what you want to run:
-            --model=[logreg, dense]
+            --model=[logreg, dense, cnn2d, cnn1d, rnn]
             --embedding=[elmo, bert, glove]
 
     """
@@ -134,6 +189,7 @@ if __name__ == "__main__":
         weights = torch.Tensor([x[1]*9+1 for x in train_dataset])
         # Hyperparameters
         input_size = 600
+        args.embedding = "glove"
     else:
         train_dataset = HDF5_Dataset(args.train_filepath, \
                                      args.target_filepath, \
@@ -190,12 +246,20 @@ if __name__ == "__main__":
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    elif args.model == "cnn1d":
+        model = CNN1d()
+        # model.load_state_dict(torch.load(PATH))
+
+        # Loss and Optimizer
+        # Softmax is internally computed.
+        # Set parameters to be updated.
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
     else:
         print("Model is not valid")
         exit(1)
 
-    if args.embedding not in ["elmo", "bert"]:
-        args.embedding = "glove"
     MODEL_PATH = f"{args.embedding}/{args.model}"
 
     f1_scores = []
