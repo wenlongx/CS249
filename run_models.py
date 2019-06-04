@@ -58,9 +58,9 @@ class HDF5_Dataset(data.Dataset):
             index = int(self.idx[index])
 
         with h5py.File(self.filepath, "r") as h5py_file:
-            if self.embedding == 'elmo':
+            if self.embedding == 'elmo' or self.embedding == 'bert-word':
                 embedding = h5py_file.get(str(index))
-            elif self.embedding == 'bert':
+            elif self.embedding == 'bert-sentence':
                 embedding = h5py_file.get(str(index))[0]
 
             # compute the average word
@@ -89,7 +89,16 @@ class HDF5_Dataset(data.Dataset):
                 The resulting embedding will be of shape:
                     (embedding_size, max_sentence_length)
                 """
-                sentence_len, word_dim = embedding.shape
+                try:
+                    sentence_len, word_dim = embedding.shape
+                except:
+                    # About 6 sentences in the BERT embeddings file have 0 length, 
+                    # due to an issue on handling newlines when reading CSV to generate BERT embedding
+                    # It shouldn't be a big problem and in this case we skip over this line
+                    padded_inputs = np.zeros((self.max_sentence_length, 768)).T
+                    embedding = torch.from_numpy(padded_inputs).float()
+                    return (embedding, self.targets[index])
+
                 # Pad embedding if it is less than self.max_sentence_length
                 if self.max_sentence_length > sentence_len:
                     padded_inputs = np.pad(embedding, pad_width = ((0, self.max_sentence_length - sentence_len), (0, 0)), mode = "constant").T
@@ -219,7 +228,7 @@ if __name__ == "__main__":
             python run_models.py --model=logreg --embedding=elmo --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
        You can change the parameters depending on what you want to run:
             --model=[logreg, dense, cnn2d, cnn1d, rnn]
-            --embedding=[elmo, bert, glove]
+            --embedding=[elmo, bert-sentence, bert-word, glove]
             [--average]
        If you don't include the --average tag, the embeddings will be padded with 0's, and 
        longer sequences will be truncated.
@@ -258,7 +267,7 @@ if __name__ == "__main__":
         # Hyperparameters
         if args.embedding == 'elmo':
             input_size = 1024
-        elif args.embedding == 'bert':
+        elif args.embedding == 'bert-sentence' or args.embedding == 'bert-word':
             input_size = 768
 
         if not args.average:
