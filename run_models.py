@@ -23,7 +23,7 @@ PATH = "lr_model.pt"
 
 # Dataset wrapper for the HDF5 files
 class HDF5_Dataset(data.Dataset):
-    def __init__(self, filepath, target_filepath, dataset="train", averaged=False):
+    def __init__(self, filepath, target_filepath, embedding, dataset="train", averaged=False):
         self.filepath = filepath
 
         with open(target_filepath) as csv_file:
@@ -34,6 +34,7 @@ class HDF5_Dataset(data.Dataset):
             y = torch.from_numpy(np.array(y).astype(int))
             self.targets = y
 
+        self.embedding = embedding
         self.averaged = averaged
 
         # Use self.idx as a subset of indices that are "train" or "test" respecitively
@@ -55,13 +56,15 @@ class HDF5_Dataset(data.Dataset):
             index = int(self.idx[index])
 
         with h5py.File(self.filepath, "r") as h5py_file:
-            embedding = h5py_file.get(str(index))
+            if self.embedding == 'elmo':
+                embedding = h5py_file.get(str(index))
+            elif self.embedding == 'bert':
+                embedding = h5py_file.get(str(index))[0]
 
             # compute the average word
             if self.averaged:
                 embedding = np.mean(embedding, axis=0)
             return (embedding, self.targets[index])
-
     def __len__(self):
         return self.len
 
@@ -101,8 +104,8 @@ if __name__ == "__main__":
 
     # use args to specify embedding file
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", action="store", dest="model", help="Which model to try: `logreg`, `dense`, or `cnn`")
-    parser.add_argument("--embedding", action="store", dest="embedding", help="Which embedding to use: `elmo` or `bert`")
+    parser.add_argument("--model", action="store", dest="model", help="Which model to try: `logreg`, `dense`")
+    parser.add_argument("--embedding", action="store", dest="embedding", help="The word embeddings to use, which can be 'elmo` or `bert`. Default to pretrained embeddings.")
     parser.add_argument("--train", action="store", dest="train_filepath", help="This is the training file, with each of the training examples embedded already")
     parser.add_argument("--targets", action="store", dest="target_filepath", help="This is the path to the training file's targets")
     parser.add_argument("--average", action="store_true", dest="average", default=False, help="Use the average word in the sentence instead of the entire sentence vector")
@@ -110,12 +113,22 @@ if __name__ == "__main__":
 
 
     """
-    python run_models.py --model=logreg --embedding=elmo --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
+    TO RUN:
+
+    1) Make the directories {embedding_name}/{model_name}. We'll store the trained model in there, as well
+       as .npy files containing a list of the F1 scores for each of the validation passes, and the .npy file
+       containing the final test accuracy.
+
+    2) Run the following command:
+            python run_models.py --model=logreg --embedding=elmo --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
+       You can change the parameters depending on what you want to run:
+            --model=[logreg, dense]
+            --embedding=[elmo, bert, glove]
+
     """
 
     print("Loading Data")
-    if args.train_filepath == "":
-        args.train_filepath == "../train.csv"
+    if args.train_filepath == "" or args.embedding not in ["elmo", "bert"]:
         train_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         test_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         weights = torch.Tensor([x[1]*9+1 for x in train_dataset])
@@ -124,20 +137,26 @@ if __name__ == "__main__":
     else:
         train_dataset = HDF5_Dataset(args.train_filepath, \
                                      args.target_filepath, \
+                                     args.embedding, \
                                      dataset="train", \
                                      averaged=args.average)
         val_dataset = HDF5_Dataset(args.train_filepath, \
                                      args.target_filepath, \
+                                     args.embedding, \
                                      dataset="validation", \
                                      averaged=args.average)
         test_dataset = HDF5_Dataset(args.train_filepath, \
                                      args.target_filepath, \
+                                     args.embedding, \
                                      dataset="test", \
                                      averaged=args.average)
         targets = train_dataset.__get_targets__()
         weights = torch.Tensor(list(map(lambda x: (1306120.0/1225310.0) if x == 0 else (1306120.0/80810.0), targets)))
         # Hyperparameters
-        input_size = 1024
+        if args.embedding == 'elmo':
+            input_size = 1024
+        elif args.embedding == 'bert':
+            input_size = 768
 
     sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, batch_size)
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
@@ -171,6 +190,12 @@ if __name__ == "__main__":
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    else:
+        print("Model is not valid")
+        exit(1)
+
+    if args.embedding not in ["elmo", "bert"]:
+        args.embedding = "glove"
     MODEL_PATH = f"{args.embedding}/{args.model}"
 
     f1_scores = []
@@ -224,12 +249,14 @@ if __name__ == "__main__":
             f1_scores.append(f1)
             np.save(f"{MODEL_PATH}/f1.npy", np.array(f1_scores))
 
-            torch.save(model.state_dict(), f"{MODEL_PATH}/{epoch}.pt")
+            # Save model per epoch
+            torch.save(model.state_dict(), f"{MODEL_PATH}/{args.model}_{epoch}.pt")
 
             model.train()
 
     # Save F1 scores at end
     np.save(f"{MODEL_PATH}/f1.npy", np.array(f1_scores))
+    # Save final model
     torch.save(model.state_dict(), f"{MODEL_PATH}/{num_epochs}.pt")
 
 
