@@ -16,14 +16,15 @@ import argparse
 # Hyper Parameters
 input_size = 1024
 num_classes = 2
-num_epochs = 5000
+num_epochs = 3000
 batch_size = 512
 learning_rate = 0.001
+max_sentence_length = 64
 PATH = "lr_model.pt"
 
 # Dataset wrapper for the HDF5 files
 class HDF5_Dataset(data.Dataset):
-    def __init__(self, filepath, target_filepath, embedding, dataset="train", averaged=False):
+    def __init__(self, filepath, target_filepath, embedding, dataset="train", averaged=False, max_sentence_length=64):
         self.filepath = filepath
 
         with open(target_filepath) as csv_file:
@@ -36,6 +37,7 @@ class HDF5_Dataset(data.Dataset):
 
         self.embedding = embedding
         self.averaged = averaged
+        self.max_sentence_length = max_sentence_length
 
         # Use self.idx as a subset of indices that are "train" or "test" respecitively
         #   these indices are then used in the __getitem__ and __len__ and __get_targets__
@@ -64,7 +66,40 @@ class HDF5_Dataset(data.Dataset):
             # compute the average word
             if self.averaged:
                 embedding = np.mean(embedding, axis=0)
+
+            # pad sentences
+            else:
+                """
+                Computing percentiles of the lengths of the sentence vectors:
+                    percentile  length
+                    50%:        11
+                    90%:        22
+                    95%:        27
+                    99%:        39
+                    99.9%:      48
+                    99.99%:     53
+                    99.999%:    57
+                    99.9999%:   66
+                    99.99999%:  125
+                    99.999999%: 133
+                Therefore, having a max sentence length of 64 will cover the vast majority
+                (all but less than 100 examples) of training examples, while keeping the 
+                embedding size relatively small.
+
+                The resulting embedding will be of shape:
+                    (embedding_size, max_sentence_length)
+                """
+                sentence_len, word_dim = embedding.shape
+                # Pad embedding if it is less than self.max_sentence_length
+                if self.max_sentence_length > sentence_len:
+                    padded_inputs = np.pad(embedding, pad_width = ((0, self.max_sentence_length - sentence_len), (0, 0)), mode = "constant").T
+                    embedding = torch.from_numpy(padded_inputs).float()
+                # Truncate embedding if it is greater than self.max_sentence_length
+                else:
+                    embedding = torch.from_numpy(embedding[:self.max_sentence_length, :].T).float()
+
             return (embedding, self.targets[index])
+
     def __len__(self):
         return self.len
 
@@ -99,11 +134,11 @@ class Dense(nn.Module):
         out = F.softmax(self.linear3(l2))
         return out
 
-# temporary CNN models in 2D and 1D
+# TODO: CNN2d
 class CNN2d(nn.Module):
-    def __init__(self):
+    def __init__(self, input_shape):
         super(CNN2d, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 5, padding = 2) # p = (h - 1) / 2
+        self.conv1 = nn.Conv2d(input_shape, 32, 5, padding = 2) # p = (h - 1) / 2
         self.pool = nn.MaxPool2d(2, stride = 2)
         self.conv2 = nn.Conv2d(32, 64, 3, padding = 1)
         self.conv3 = nn.Conv2d(64, 64, 3, padding = 1)
@@ -120,24 +155,29 @@ class CNN2d(nn.Module):
         return x
 
 class CNN1d(nn.Module):
-    def __init__(self):
+    def __init__(self, input_shape):
         super(CNN1d, self).__init__()
-        self.conv1 = nn.Conv1d(768, 32, 5, padding = 2) # p = (h - 1) / 2
+        self.input_shape = input_shape
+        # Here, we treat the embedding dim as the number of channels
+        self.conv1 = nn.Conv1d(self.input_shape[0], 32, 5, padding = 2) # p = (h - 1) / 2
         self.pool = nn.MaxPool1d(2, stride = 2)
         self.conv2 = nn.Conv1d(32, 64, 3, padding = 1)
         self.conv3 = nn.Conv1d(64, 64, 3, padding = 1)
-        self.fc1 = nn.Linear(64 * 6, 10)
+        self.fc1 = nn.Linear(int(64 * (self.input_shape[1]/8)), 10)
         self.fc2 = nn.Linear(10, 2)
 
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = self.pool(F.relu(self.conv3(x)))
-        x = x.view(-1, 64 * 6)  # TODO: errors on BERT
+        # Here we divide input_shape by 8, since we pool 3 times
+        # Each convolutional layer does not change the second dimension
+        x = x.view(-1, int(64 * (self.input_shape[1]/8)))
         x = self.fc1(x)
         x = self.fc2(x)
         return x
 
+# TODO: rnn
 class RNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(RNN, self).__init__()
@@ -172,13 +212,17 @@ if __name__ == "__main__":
 
     1) Make the directories {embedding_name}/{model_name}. We'll store the trained model in there, as well
        as .npy files containing a list of the F1 scores for each of the validation passes, and the .npy file
-       containing the final test accuracy.
+       containing the final test accuracy. If you want to use the full embeddings (and not the averaged
+       ones, then make the directory {embedding_name}_pad/{model_name}.
 
     2) Run the following command:
             python run_models.py --model=logreg --embedding=elmo --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
        You can change the parameters depending on what you want to run:
             --model=[logreg, dense, cnn2d, cnn1d, rnn]
             --embedding=[elmo, bert, glove]
+            [--average]
+       If you don't include the --average tag, the embeddings will be padded with 0's, and 
+       longer sequences will be truncated.
 
     """
 
@@ -195,17 +239,20 @@ if __name__ == "__main__":
                                      args.target_filepath, \
                                      args.embedding, \
                                      dataset="train", \
-                                     averaged=args.average)
+                                     averaged=args.average, \
+                                     max_sentence_length=max_sentence_length)
         val_dataset = HDF5_Dataset(args.train_filepath, \
                                      args.target_filepath, \
                                      args.embedding, \
                                      dataset="validation", \
-                                     averaged=args.average)
+                                     averaged=args.average, \
+                                     max_sentence_length=max_sentence_length)
         test_dataset = HDF5_Dataset(args.train_filepath, \
                                      args.target_filepath, \
                                      args.embedding, \
                                      dataset="test", \
-                                     averaged=args.average)
+                                     averaged=args.average, \
+                                     max_sentence_length=max_sentence_length)
         targets = train_dataset.__get_targets__()
         weights = torch.Tensor(list(map(lambda x: (1306120.0/1225310.0) if x == 0 else (1306120.0/80810.0), targets)))
         # Hyperparameters
@@ -213,6 +260,9 @@ if __name__ == "__main__":
             input_size = 1024
         elif args.embedding == 'bert':
             input_size = 768
+
+        if not args.average:
+            input_size = (input_size, max_sentence_length)
 
     sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, batch_size)
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
@@ -238,7 +288,7 @@ if __name__ == "__main__":
 
     elif args.model == "dense":
         model = Dense(input_size, 256, 32, num_classes)
-        # model.load_state_dict(torch.load(PATH))
+        model.load_state_dict(torch.load("elmo/dense/dense_3001.pt"))
 
         # Loss and Optimizer
         # Softmax is internally computed.
@@ -246,8 +296,9 @@ if __name__ == "__main__":
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    # Note: must run cnn1d with non averaged embeddings
     elif args.model == "cnn1d":
-        model = CNN1d()
+        model = CNN1d(input_size)
         # model.load_state_dict(torch.load(PATH))
 
         # Loss and Optimizer
@@ -255,12 +306,17 @@ if __name__ == "__main__":
         # Set parameters to be updated.
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+        print(model)
 
     else:
         print("Model is not valid")
         exit(1)
 
-    MODEL_PATH = f"{args.embedding}/{args.model}"
+    if not args.average:
+        MODEL_PATH = f"{args.embedding}_pad/{args.model}"
+    else:
+        MODEL_PATH = f"{args.embedding}/{args.model}"
 
     # Compute on GPU if available
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
