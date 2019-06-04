@@ -262,6 +262,11 @@ if __name__ == "__main__":
 
     MODEL_PATH = f"{args.embedding}/{args.model}"
 
+    # Compute on GPU if available
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    print(f"Running on {device}")
+
     f1_scores = []
 
     print("Starting Training")
@@ -269,8 +274,9 @@ if __name__ == "__main__":
     for epoch in range(num_epochs):
         for i, (sentences, labels) in enumerate(train_loader):
 
-            sentences = Variable(sentences)
-            labels = Variable(labels)
+            # Compute on GPU if available
+            sentences = Variable(sentences).to(device)
+            labels = Variable(labels).to(device)
 
             # Forward + Backward + Optimize
             optimizer.zero_grad()
@@ -293,7 +299,9 @@ if __name__ == "__main__":
             real_positives = 0.0
             true_positives = 0.0
             for sentences, labels in val_loader:
-                sentences = Variable(sentences)
+                sentences = Variable(sentences).to(device)
+                labels = labels.to(device)
+
                 outputs = model(sentences)
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
@@ -333,7 +341,9 @@ if __name__ == "__main__":
     real_positives = 0.0
     true_positives = 0.0
     for sentences, labels in test_loader:
-        sentences = Variable(sentences)
+        sentences = Variable(sentences).to(device)
+        labels = labels.to(device)
+
         outputs = model(sentences)
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
