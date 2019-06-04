@@ -19,7 +19,7 @@ num_classes = 2
 num_epochs = 3000
 batch_size = 512
 learning_rate = 0.001
-max_sentence_length = 64
+max_sentence_length = 32
 PATH = "lr_model.pt"
 
 # Dataset wrapper for the HDF5 files
@@ -75,6 +75,8 @@ class HDF5_Dataset(data.Dataset):
                     50%:        11
                     90%:        22
                     95%:        27
+                    97%:        31
+                    98%:        34
                     99%:        39
                     99.9%:      48
                     99.99%:     53
@@ -82,7 +84,7 @@ class HDF5_Dataset(data.Dataset):
                     99.9999%:   66
                     99.99999%:  125
                     99.999999%: 133
-                Therefore, having a max sentence length of 64 will cover the vast majority
+                Therefore, having a max sentence length of 32 will cover the vast majority
                 (all but less than 100 examples) of training examples, while keeping the 
                 embedding size relatively small.
 
