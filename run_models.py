@@ -96,7 +96,7 @@ class HDF5_Dataset(data.Dataset):
                     embedding = torch.from_numpy(padded_inputs).float()
                 # Truncate embedding if it is greater than self.max_sentence_length
                 else:
-                    embedding = embedding[:self.max_sentence_length, :].T
+                    embedding = torch.from_numpy(embedding[:self.max_sentence_length, :].T).float()
 
             return (embedding, self.targets[index])
 
