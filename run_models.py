@@ -58,9 +58,9 @@ class HDF5_Dataset(data.Dataset):
             index = int(self.idx[index])
 
         with h5py.File(self.filepath, "r") as h5py_file:
-            if self.embedding == 'elmo' or self.embedding == 'glove':
+            if self.embedding == 'elmo' or self.embedding == 'bert_word' or self.embedding == 'glove':
                 embedding = h5py_file.get(str(index))
-            elif self.embedding == 'bert':
+            elif self.embedding == 'bert_sentence':
                 embedding = h5py_file.get(str(index))[0]
 
             # compute the average word
@@ -91,7 +91,16 @@ class HDF5_Dataset(data.Dataset):
                 The resulting embedding will be of shape:
                     (embedding_size, max_sentence_length)
                 """
-                sentence_len, word_dim = embedding.shape
+                try:
+                    sentence_len, word_dim = embedding.shape
+                except:
+                    # About 6 sentences in the BERT embeddings file have 0 length,
+                    # due to an issue on handling newlines when reading CSV to generate BERT embedding
+                    # It shouldn't be a big problem and in this case we skip over this line
+                    padded_inputs = np.zeros((self.max_sentence_length, 768)).T
+                    embedding = torch.from_numpy(padded_inputs).float()
+                    return (embedding, self.targets[index])
+
                 # Pad embedding if it is less than self.max_sentence_length
                 if self.max_sentence_length > sentence_len:
                     padded_inputs = np.pad(embedding, pad_width = ((0, self.max_sentence_length - sentence_len), (0, 0)), mode = "constant").T
@@ -221,7 +230,7 @@ if __name__ == "__main__":
             python run_models.py --model=logreg --embedding=elmo --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
        You can change the parameters depending on what you want to run:
             --model=[logreg, dense, cnn2d, cnn1d, rnn]
-            --embedding=[elmo, bert, glove]
+            --embedding=[elmo, bert_sentence, bert_word, glove]
             [--average]
        If you don't include the --average tag, the embeddings will be padded with 0's, and
        longer sequences will be truncated.
@@ -229,7 +238,9 @@ if __name__ == "__main__":
     """
 
     print("Loading Data")
-    if args.train_filepath == "" or args.embedding not in ["elmo", "bert", "glove"]:
+    print(args.embedding)
+
+    if args.train_filepath == "" or args.embedding not in ["elmo", "bert_word", "bert_sentence", "glove"]:
         dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         datalen = len(dataset)
         train_len = int(0.7*datalen)
@@ -263,7 +274,7 @@ if __name__ == "__main__":
         # Hyperparameters
         if args.embedding == 'elmo':
             input_size = 1024
-        elif args.embedding == 'bert':
+        elif args.embedding == 'bert_sentence' or args.embedding == 'bert_word':
             input_size = 768
 
         if not args.average:
@@ -323,6 +334,11 @@ if __name__ == "__main__":
     else:
         MODEL_PATH = f"{args.embedding}/{args.model}"
 
+    # Compute on GPU if available
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    print(f"Running on {device}")
+
     f1_scores = []
 
     print("Starting Training")
@@ -330,8 +346,9 @@ if __name__ == "__main__":
     for epoch in range(num_epochs):
         for i, (sentences, labels) in enumerate(train_loader):
 
-            sentences = Variable(sentences)
-            labels = Variable(labels)
+            # Compute on GPU if available
+            sentences = Variable(sentences).to(device)
+            labels = Variable(labels).to(device)
 
             # Forward + Backward + Optimize
             optimizer.zero_grad()
@@ -354,7 +371,9 @@ if __name__ == "__main__":
             real_positives = 0.0
             true_positives = 0.0
             for sentences, labels in val_loader:
-                sentences = Variable(sentences)
+                sentences = Variable(sentences).to(device)
+                labels = labels.to(device)
+
                 outputs = model(sentences)
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
@@ -394,7 +413,9 @@ if __name__ == "__main__":
     real_positives = 0.0
     true_positives = 0.0
     for sentences, labels in test_loader:
-        sentences = Variable(sentences)
+        sentences = Variable(sentences).to(device)
+        labels = labels.to(device)
+
         outputs = model(sentences)
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
