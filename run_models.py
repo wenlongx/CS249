@@ -58,9 +58,9 @@ class HDF5_Dataset(data.Dataset):
             index = int(self.idx[index])
 
         with h5py.File(self.filepath, "r") as h5py_file:
-            if self.embedding == 'elmo' or self.embedding == 'bert-word':
+            if self.embedding == 'elmo' or self.embedding == 'bert_word':
                 embedding = h5py_file.get(str(index))
-            elif self.embedding == 'bert-sentence':
+            elif self.embedding == 'bert_sentence':
                 embedding = h5py_file.get(str(index))[0]
 
             # compute the average word
@@ -230,7 +230,7 @@ if __name__ == "__main__":
             python run_models.py --model=logreg --embedding=elmo --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
        You can change the parameters depending on what you want to run:
             --model=[logreg, dense, cnn2d, cnn1d, rnn]
-            --embedding=[elmo, bert-sentence, bert-word, glove]
+            --embedding=[elmo, bert_sentence, bert_word, glove]
             [--average]
        If you don't include the --average tag, the embeddings will be padded with 0's, and
        longer sequences will be truncated.
@@ -238,7 +238,9 @@ if __name__ == "__main__":
     """
 
     print("Loading Data")
-    if args.train_filepath == "" or args.embedding not in ["elmo", "bert"]:
+    print(args.embedding)
+
+    if args.train_filepath == "" or args.embedding not in ["elmo", "bert_word", "bert_sentence"]:
         dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         datalen = len(dataset)
         train_len = int(0.7*datalen)
@@ -272,7 +274,7 @@ if __name__ == "__main__":
         # Hyperparameters
         if args.embedding == 'elmo':
             input_size = 1024
-        elif args.embedding == 'bert-sentence' or args.embedding == 'bert-word':
+        elif args.embedding == 'bert_sentence' or args.embedding == 'bert_word':
             input_size = 768
 
         if not args.average:
