@@ -58,9 +58,9 @@ class HDF5_Dataset(data.Dataset):
             index = int(self.idx[index])
 
         with h5py.File(self.filepath, "r") as h5py_file:
-            if self.embedding == 'elmo':
+            if self.embedding == 'elmo' or self.embedding == 'bert_word' or self.embedding == 'glove':
                 embedding = h5py_file.get(str(index))
-            elif self.embedding == 'bert':
+            elif self.embedding == 'bert_sentence':
                 embedding = h5py_file.get(str(index))[0]
 
             # compute the average word
@@ -85,13 +85,22 @@ class HDF5_Dataset(data.Dataset):
                     99.99999%:  125
                     99.999999%: 133
                 Therefore, having a max sentence length of 32 will cover the vast majority
-                (all but less than 100 examples) of training examples, while keeping the 
+                (all but less than 100 examples) of training examples, while keeping the
                 embedding size relatively small.
 
                 The resulting embedding will be of shape:
                     (embedding_size, max_sentence_length)
                 """
-                sentence_len, word_dim = embedding.shape
+                try:
+                    sentence_len, word_dim = embedding.shape
+                except:
+                    # About 6 sentences in the BERT embeddings file have 0 length,
+                    # due to an issue on handling newlines when reading CSV to generate BERT embedding
+                    # It shouldn't be a big problem and in this case we skip over this line
+                    padded_inputs = np.zeros((self.max_sentence_length, 768)).T
+                    embedding = torch.from_numpy(padded_inputs).float()
+                    return (embedding, self.targets[index])
+
                 # Pad embedding if it is less than self.max_sentence_length
                 if self.max_sentence_length > sentence_len:
                     padded_inputs = np.pad(embedding, pad_width = ((0, self.max_sentence_length - sentence_len), (0, 0)), mode = "constant").T
@@ -225,17 +234,22 @@ python run_models.py --model=cnn1d --embedding=elmo --train=quora-insincere-ques
 
        You can change the parameters depending on what you want to run:
             --model=[logreg, dense, cnn2d, cnn1d, rnn]
-            --embedding=[elmo, bert, glove]
+            --embedding=[elmo, bert_sentence, bert_word, glove]
             [--average]
-       If you don't include the --average tag, the embeddings will be padded with 0's, and 
+       If you don't include the --average tag, the embeddings will be padded with 0's, and
        longer sequences will be truncated.
 
     """
 
     print("Loading Data")
-    if args.train_filepath == "" or args.embedding not in ["elmo", "bert"]:
-        train_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
-        test_dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
+    print(args.embedding)
+
+    if args.train_filepath == "" or args.embedding not in ["elmo", "bert_word", "bert_sentence", "glove"]:
+        dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
+        datalen = len(dataset)
+        train_len = int(0.7*datalen)
+        val_len = int(0.1*datalen)
+        train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_len, val_len, datalen-train_len-val_len])
         weights = torch.Tensor([x[1]*9+1 for x in train_dataset])
         # Hyperparameters
         input_size = 600
@@ -264,7 +278,7 @@ python run_models.py --model=cnn1d --embedding=elmo --train=quora-insincere-ques
         # Hyperparameters
         if args.embedding == 'elmo':
             input_size = 1024
-        elif args.embedding == 'bert':
+        elif args.embedding == 'bert_sentence' or args.embedding == 'bert_word':
             input_size = 768
 
         if not args.average:
@@ -326,6 +340,11 @@ python run_models.py --model=cnn1d --embedding=elmo --train=quora-insincere-ques
     else:
         MODEL_PATH = f"{args.embedding}/{args.model}"
 
+    # Compute on GPU if available
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    print(f"Running on {device}")
+
     f1_scores = []
 
     print("Starting Training")
@@ -333,8 +352,9 @@ python run_models.py --model=cnn1d --embedding=elmo --train=quora-insincere-ques
     for epoch in range(num_epochs):
         for i, (sentences, labels) in enumerate(train_loader):
 
-            sentences = Variable(sentences)
-            labels = Variable(labels)
+            # Compute on GPU if available
+            sentences = Variable(sentences).to(device)
+            labels = Variable(labels).to(device)
 
             # Forward + Backward + Optimize
             optimizer.zero_grad()
@@ -357,7 +377,9 @@ python run_models.py --model=cnn1d --embedding=elmo --train=quora-insincere-ques
             real_positives = 0.0
             true_positives = 0.0
             for sentences, labels in val_loader:
-                sentences = Variable(sentences)
+                sentences = Variable(sentences).to(device)
+                labels = labels.to(device)
+
                 outputs = model(sentences)
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
@@ -397,7 +419,9 @@ python run_models.py --model=cnn1d --embedding=elmo --train=quora-insincere-ques
     real_positives = 0.0
     true_positives = 0.0
     for sentences, labels in test_loader:
-        sentences = Variable(sentences)
+        sentences = Variable(sentences).to(device)
+        labels = labels.to(device)
+
         outputs = model(sentences)
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
