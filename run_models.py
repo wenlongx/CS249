@@ -58,7 +58,7 @@ class HDF5_Dataset(data.Dataset):
             index = int(self.idx[index])
 
         with h5py.File(self.filepath, "r") as h5py_file:
-            if self.embedding == 'elmo':
+            if self.embedding == 'elmo' or self.embedding == 'glove':
                 embedding = h5py_file.get(str(index))
             elif self.embedding == 'bert':
                 embedding = h5py_file.get(str(index))[0]
@@ -229,7 +229,7 @@ if __name__ == "__main__":
     """
 
     print("Loading Data")
-    if args.train_filepath == "" or args.embedding not in ["elmo", "bert"]:
+    if args.train_filepath == "" or args.embedding not in ["elmo", "bert", "glove"]:
         dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         datalen = len(dataset)
         train_len = int(0.7*datalen)
