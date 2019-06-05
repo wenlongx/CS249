@@ -123,6 +123,7 @@ class LogisticRegression(nn.Module):
 class Dense(nn.Module):
     def __init__(self, input_size, H1, H2, num_classes):
         super(Dense, self).__init__()
+        self.input_size = input_size
         self.linear1 = nn.Linear(input_size, H1)
         self.bn1 = nn.BatchNorm1d(num_features=H1)
         self.linear2 = nn.Linear(H1, H2)
@@ -131,6 +132,7 @@ class Dense(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
+        x = x.view(-1, int(self.input_size))
         l1 = self.bn1(F.relu(self.linear1(x)))
         l2 = self.bn2(F.relu(self.linear2(l1)))
         out = F.softmax(self.linear3(l2))
@@ -219,6 +221,8 @@ if __name__ == "__main__":
 
     2) Run the following command:
             python run_models.py --model=logreg --embedding=elmo --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv --average
+python run_models.py --model=cnn1d --embedding=elmo --train=quora-insincere-questions-classification/train_average.hdf5 --targets=quora-insincere-questions-classification/train_targets.csv
+
        You can change the parameters depending on what you want to run:
             --model=[logreg, dense, cnn2d, cnn1d, rnn]
             --embedding=[elmo, bert, glove]
@@ -289,8 +293,10 @@ if __name__ == "__main__":
         optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
     elif args.model == "dense":
+        if len(np.shape(input_size)) > 0:
+            input_size = np.prod(input_size)
         model = Dense(input_size, 256, 32, num_classes)
-        model.load_state_dict(torch.load("elmo/dense/dense_3001.pt"))
+        # model.load_state_dict(torch.load("elmo/dense/dense_3001.pt"))
 
         # Loss and Optimizer
         # Softmax is internally computed.
@@ -301,7 +307,7 @@ if __name__ == "__main__":
     # Note: must run cnn1d with non averaged embeddings
     elif args.model == "cnn1d":
         model = CNN1d(input_size)
-        # model.load_state_dict(torch.load(PATH))
+        # model.load_state_dict(torch.load("elmo_pad/cnn1d/3000.pt"))
 
         # Loss and Optimizer
         # Softmax is internally computed.
@@ -342,7 +348,7 @@ if __name__ == "__main__":
                 print ('Epoch: [%d/%d], Step: [%d/%d], Loss: %.4f'
                        % (epoch+1, num_epochs, i+1, len(train_dataset)//batch_size, loss.data.item()))
 
-        if epoch % 1000 == 1:
+        if epoch % 1000 == 999:
             # eval mode
             model.eval()
             correct = 0
