@@ -58,7 +58,7 @@ class HDF5_Dataset(data.Dataset):
             index = int(self.idx[index])
 
         with h5py.File(self.filepath, "r") as h5py_file:
-            if self.embedding == 'elmo' or self.embedding == 'bert_word':
+            if self.embedding == 'elmo' or self.embedding == 'bert_word' or self.embedding == 'glove':
                 embedding = h5py_file.get(str(index))
             elif self.embedding == 'bert_sentence':
                 embedding = h5py_file.get(str(index))[0:1]
@@ -94,7 +94,7 @@ class HDF5_Dataset(data.Dataset):
                 try:
                     sentence_len, word_dim = embedding.shape
                 except:
-                    # About 6 sentences in the BERT embeddings file have 0 length, 
+                    # About 6 sentences in the BERT embeddings file have 0 length,
                     # due to an issue on handling newlines when reading CSV to generate BERT embedding
                     # It shouldn't be a big problem and in this case we skip over this line
                     padded_inputs = np.zeros((self.max_sentence_length, 768)).T
@@ -240,7 +240,7 @@ if __name__ == "__main__":
     print("Loading Data")
     print(args.embedding)
 
-    if args.train_filepath == "" or args.embedding not in ["elmo", "bert_word", "bert_sentence"]:
+    if args.train_filepath == "" or args.embedding not in ["elmo", "bert_word", "bert_sentence", "glove"]:
         dataset = load_dataset_from_file("../train.csv", "glove_mean_avg.pt")
         datalen = len(dataset)
         train_len = int(0.7*datalen)
