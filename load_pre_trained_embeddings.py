@@ -83,5 +83,5 @@ def sentence2vec(sentence, embeddings, embedding_dim=300):
     if valid:
         avg /= valid
     return np.concatenate((max,avg))
-create_dataset(None,None)
+# create_dataset(None,None)
 # load_dataset("../train.csv","../embeddings/glove.840B.300d/glove.840B.300d.txt")
