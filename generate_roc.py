@@ -75,7 +75,7 @@ class HDF5_Dataset(data.Dataset):
             if self.embedding == 'elmo' or self.embedding == 'bert_word' or self.embedding == 'glove':
                 embedding = h5py_file.get(str(index))
             elif self.embedding == 'bert_sentence':
-                embedding = h5py_file.get(str(index))[0]
+                embedding = h5py_file.get(str(index))[0:1]
 
             # compute the average word
             if self.averaged:
