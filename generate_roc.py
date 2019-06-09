@@ -289,6 +289,8 @@ if __name__ == "__main__":
             input_size = 1024
         elif args.embedding == 'bert_sentence' or args.embedding == 'bert_word':
             input_size = 768
+        elif args.embedding == "glove":
+            input_size = 300
 
         if not args.average:
             input_size = (input_size, max_sentence_length)
