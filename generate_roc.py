@@ -314,7 +314,10 @@ if __name__ == "__main__":
         print("Model is not valid")
         exit(1)
 
-    model.load_state_dict(torch.load(args.model_path))
+    if torch.cuda.is_available():
+        model.load_state_dict(torch.load(args.model_path))
+    else:
+        model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
 
 
     # Compute on GPU if available
